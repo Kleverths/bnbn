@@ -1,0 +1,334 @@
+# Importamos las bibliotecas necesarias
+import imaplib
+import email
+from binance.client import Client
+from binance.enums import *
+import os
+import tkinter as tk
+import time
+# Definimos las credenciales de las cuentas de correo
+correo1 = "correo1@outlook.com"
+contraseña1 = "clave1"
+correo2 = "correo2@outlook.com"
+contraseña2 = "clave2"
+
+# Definimos las credenciales de la cuenta de binance
+api_key = "apikey"
+api_secret = "apisecret"
+
+# Creamos el cliente de binance
+client = Client(api_key, api_secret)
+
+# Definimos una variable global para controlar el estado del programa
+activo = False
+
+# Definimos una variable global para contar las operaciones abiertas
+operaciones = 0
+
+# Definimos una función para conectar con una cuenta de Outlook y obtener los correos no leídos
+def obtener_correos(cuenta, contraseña):
+    # Creamos una conexión IMAP con el servidor de Outlook
+    conexion = imaplib.IMAP4_SSL("outlook.office365.com")
+    # Iniciamos sesión con la cuenta y la contraseña
+    conexion.login(cuenta, contraseña)
+    # Seleccionamos la bandeja de entrada
+    conexion.select("INBOX")
+    # Buscamos los correos no leídos
+    _, ids = conexion.search(None, "UNSEEN")
+    # Obtenemos una lista de los ids de los correos
+    ids = ids[0].split()
+    # Creamos una lista vacía para almacenar los correos
+    correos = []
+    # Recorremos los ids de los correos
+    for id in ids:
+        # Obtenemos el correo con el id correspondiente
+        _, data = conexion.fetch(id, "(RFC822)")
+        # Convertimos el correo a un objeto de tipo email
+        correo = email.message_from_bytes(data[0][1])
+        # Añadimos el correo a la lista de correos
+        correos.append(correo)
+        # Marcamos el correo como leído
+        conexion.store(id, "+FLAGS", "\\Seen")
+    # Cerramos la conexión
+    conexion.close()
+    # Devolvemos la lista de correos
+    return correos
+
+# Definimos una función para ejecutar una operación long en binance
+def operacion_long():
+# Cancelar todas las órdenes abiertas del mercado de futuros 
+    response = client.futures_cancel_all_open_orders(symbol="INJUSDT")
+
+# Definir el símbolo, la cantidad y el apalancamiento del contrato de futuros
+    symbol = "INJUSDT"
+    usdt_amount = 1 # Ejemplo: 100 USDT
+    leverage = 25
+
+# Cambiar el apalancamiento del contrato de futuros
+    client.futures_change_leverage(symbol=symbol, leverage=leverage)
+
+# Obtener el precio actual del contrato de futuros
+    price = float(client.futures_symbol_ticker(symbol=symbol)["price"])
+
+# Función para comprobar si una orden se ha ejecutado correctamente
+    def is_order_executed(order_id):
+        order = client.futures_get_order(orderId=order_id, symbol=symbol)
+        return order["status"] in [ORDER_STATUS_FILLED]
+
+# Función para comprobar si una orden se ha cerrado con éxito
+    def is_order_closed(order_id):
+        order = client.futures_get_order(orderId=order_id, symbol=symbol)
+        return order["status"] == ORDER_STATUS_FILLED
+
+# Crear una orden de compra de mercado con reduce only
+    order = client.futures_create_order(
+        symbol=symbol,
+        side=SIDE_BUY,
+        type=ORDER_TYPE_MARKET,
+        quantity=round(usdt_amount, 3), # Redondear la cantidad de USDT a la precisión correcta
+)
+
+# Obtener el ID de la orden
+    order_id = order["orderId"]
+
+# Comprobar si la orden se ha ejecutado correctamente
+    while not is_order_executed(order_id):
+        time.sleep(1)
+
+# Obtener el precio de entrada de la operación
+    entry_price = float(client.futures_get_order(orderId=order_id, symbol=symbol)["avgPrice"])
+
+# Calcular el precio del take profit y el stop loss en función del precio de entrada
+    take_profit_price = entry_price + 0.070 # Ejemplo: Restar 0.100 USDT al precio de entrada
+    stop_loss_price = entry_price - 0.040 # Ejemplo: Sumar 0.040 USDT al precio de entrada
+
+# Redondear el precio del take profit y el stop loss a la precisión correcta
+    take_profit_price = round(take_profit_price, 4)
+    stop_loss_price = round(stop_loss_price, 4)
+
+# Crear una orden de venta de mercado con take profit
+    take_profit_order = client.futures_create_order(
+        symbol=symbol,
+        side=SIDE_SELL,
+        type=FUTURE_ORDER_TYPE_TAKE_PROFIT_MARKET,
+        quantity=round(usdt_amount, 3), # Redondear la cantidad de USDT a la precisión correcta
+        stopPrice=take_profit_price,
+        closePosition=True # Indica que se cierra la posición al ejecutar la orden
+    
+)
+
+# Crear una orden de venta de mercado con stop loss
+    stop_loss_order = client.futures_create_order(
+        symbol=symbol,
+        side=SIDE_SELL,
+        type=FUTURE_ORDER_TYPE_STOP_MARKET,
+        quantity=round(usdt_amount, 3), # Redondear la cantidad de USDT a la precisión correcta
+        stopPrice=stop_loss_price,
+        closePosition=True # Indica que se cierra la posición al ejecutar la orden
+)
+
+# Comprobar si las órdenes se han cerrado con éxito
+    while not is_order_closed(take_profit_order["orderId"]):
+        time.sleep(1)
+    # print(order)
+    pass
+
+# Definimos una función para ejecutar una operación short en binance
+def operacion_short():
+# Cancelar todas las órdenes abiertas del mercado de futuros 
+    response = client.futures_cancel_all_open_orders(symbol="INJUSDT")
+
+# Definir el símbolo, la cantidad y el apalancamiento del contrato de futuros
+    symbol = "INJUSDT"
+    usdt_amount = 1 # Ejemplo: 100 USDT
+    leverage = 25
+
+# Cambiar el apalancamiento del contrato de futuros
+    client.futures_change_leverage(symbol=symbol, leverage=leverage)
+
+# Obtener el precio actual del contrato de futuros
+    price = float(client.futures_symbol_ticker(symbol=symbol)["price"])
+
+# Función para comprobar si una orden se ha ejecutado correctamente
+    def is_order_executed(order_id):
+        order = client.futures_get_order(orderId=order_id, symbol=symbol)
+        return order["status"] in [ORDER_STATUS_FILLED]
+
+# Función para comprobar si una orden se ha cerrado con éxito
+    def is_order_closed(order_id):
+        order = client.futures_get_order(orderId=order_id, symbol=symbol)
+        return order["status"] == ORDER_STATUS_FILLED
+
+# Crear una orden de venta de mercado con reduce only
+    order = client.futures_create_order(
+        symbol=symbol,
+        side=SIDE_SELL,
+        type=ORDER_TYPE_MARKET,
+        quantity=round(usdt_amount, 3), # Redondear la cantidad de USDT a la precisión correcta
+)
+
+# Obtener el ID de la orden
+    order_id = order["orderId"]
+
+# Comprobar si la orden se ha ejecutado correctamente
+    while not is_order_executed(order_id):
+        time.sleep(1)
+
+# Obtener el precio de entrada de la operación
+    entry_price = float(client.futures_get_order(orderId=order_id, symbol=symbol)["avgPrice"])
+
+# Calcular el precio del take profit y el stop loss en función del precio de entrada
+    take_profit_price = entry_price - 0.070 # Ejemplo: Restar 0.100 USDT al precio de entrada
+    stop_loss_price = entry_price + 0.040 # Ejemplo: Sumar 0.040 USDT al precio de entrada
+
+# Redondear el precio del take profit y el stop loss a la precisión correcta
+    take_profit_price = round(take_profit_price, 4)
+    stop_loss_price = round(stop_loss_price, 4)
+
+# Crear una orden de compra de mercado con take profit
+    take_profit_order = client.futures_create_order(
+        symbol=symbol,
+        side=SIDE_BUY,
+        type=FUTURE_ORDER_TYPE_TAKE_PROFIT_MARKET,
+        quantity=round(usdt_amount, 3), # Redondear la cantidad de USDT a la precisión correcta
+        stopPrice=take_profit_price,
+        closePosition=True # Indica que se cierra la posición al ejecutar la orden
+    
+)
+
+# Crear una orden de compra de mercado con stop loss
+    stop_loss_order = client.futures_create_order(
+        symbol=symbol,
+        side=SIDE_BUY,
+        type=FUTURE_ORDER_TYPE_STOP_MARKET,
+        quantity=round(usdt_amount, 3), # Redondear la cantidad de USDT a la precisión correcta
+        stopPrice=stop_loss_price,
+        closePosition=True # Indica que se cierra la posición al ejecutar la orden
+)
+
+# Comprobar si las órdenes se han cerrado con éxito
+    while not is_order_closed(take_profit_order["orderId"]):
+        time.sleep(1)
+
+
+    # print(order)
+    pass
+
+# Definimos una función para verificar si hay una operación long abierta en binance
+def hay_long_abierta():
+    # Obtenemos las posiciones abiertas en binance
+    posiciones = client.futures_position_information()
+    # Recorremos las posiciones
+    for posicion in posiciones:
+        # Si la posición es de BTCUSDT y el lado es long
+        if posicion["symbol"] == "INJUSDT" and posicion["positionSide"] == "LONG":
+            # Si la cantidad de la posición es mayor que cero
+            if float(posicion["positionAmt"]) > 0:
+                # Devolvemos True
+                return True
+    # Si no hay ninguna posición long abierta, devolvemos False
+    return False
+
+# Definimos una función para verificar si hay una operación short abierta en binance
+def hay_short_abierta():
+    # Obtenemos las posiciones abiertas en binance
+    posiciones = client.futures_position_information()
+    # Recorremos las posiciones
+    for posicion in posiciones:
+        # Si la posición es de BTCUSDT y el lado es short
+        if posicion["symbol"] == "INJUSDT" and posicion["positionSide"] == "SHORT":
+            # Si la cantidad de la posición es mayor que cero
+            if float(posicion["positionAmt"]) > 0:
+                # Devolvemos True
+                return True
+    # Si no hay ninguna posición short abierta, devolvemos False
+    return False
+
+# Definimos una función para revisar los correos y ejecutar las operaciones correspondientes
+def revisar_correos():
+    # Obtenemos los correos no leídos de la cuenta 1
+    correos1 = obtener_correos(correo1, contraseña1)
+    # Recorremos los correos de la cuenta 1
+    for correo in correos1:
+        # Obtenemos el asunto del correo
+        asunto = correo["Subject"]
+        # Si el asunto contiene "Operacion Long"
+        if "Operacion Long" in asunto:
+            # Si no hay una operación long abierta en binance
+            if not hay_long_abierta():
+                # Ejecutamos la operación long
+                operacion_long()
+                # Incrementamos el contador de operaciones
+                global operaciones
+                operaciones += 1
+                # Actualizamos el contador en la interfaz
+                contador["text"] = f"Operaciones abiertas: {operaciones}"
+    # Obtenemos los correos no leídos de la cuenta 2
+    correos2 = obtener_correos(correo2, contraseña2)
+    # Recorremos los correos de la cuenta 2
+    for correo in correos2:
+        # Obtenemos el asunto del correo
+        asunto = correo["Subject"]
+        # Si el asunto contiene "Operacion Short"
+        if "Operacion Short" in asunto:
+            # Si no hay una operación short abierta en binance
+            if not hay_short_abierta():
+                # Ejecutamos la operación short
+                operacion_short()
+                # Incrementamos el contador de operaciones
+                global operaciones
+                operaciones += 1
+                # Actualizamos el contador en la interfaz
+                contador["text"] = f"Operaciones abiertas: {operaciones}"
+
+# Definimos una función para activar el programa
+def activar():
+    # Cambiamos el estado del programa a activo
+    global activo
+    activo = True
+    # Cambiamos el color del botón de activar a verde
+    boton_activar["bg"] = "green"
+    # Cambiamos el color del botón de desactivar a gris
+    boton_desactivar["bg"] = "grey"
+    # Llamamos a la función principal del programa
+    principal()
+
+# Definimos una función para desactivar el programa
+def desactivar():
+    # Cambiamos el estado del programa a inactivo
+    global activo
+    activo = False
+    # Cambiamos el color del botón de activar a gris
+    boton_activar["bg"] = "grey"
+    # Cambiamos el color del botón de desactivar a rojo
+    boton_desactivar["bg"] = "red"
+
+# Definimos la función principal del programa
+def principal():
+    # Si el programa está activo
+    if activo:
+        # Revisamos los correos y ejecutamos las operaciones correspondientes
+        revisar_correos()
+        # Volvemos a llamar a la función principal después de un segundo
+        ventana.after(1000, principal)
+
+# Creamos la ventana de la interfaz gráfica
+ventana = tk.Tk()
+# Le damos un título a la ventana
+ventana.title("Programa de operaciones en binance")
+# Le damos un tamaño a la ventana
+ventana.geometry("300x100")
+# Creamos un botón para activar el programa
+boton_activar = tk.Button(ventana, text="Activar", command=activar, bg="grey")
+# Colocamos el botón en la ventana
+boton_activar.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+# Creamos un botón para desactivar el programa
+boton_desactivar = tk.Button(ventana, text="Desactivar", command=desactivar, bg="grey")
+# Colocamos el botón en la ventana
+boton_desactivar.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+# Creamos una etiqueta para mostrar el contador de operaciones
+contador = tk.Label(ventana, text="Operaciones abiertas: 0")
+# Colocamos la etiqueta en la ventana
+contador.pack(side=tk.BOTTOM, fill=tk.BOTH, expand=True)
+# Iniciamos el bucle principal de la ventana
+ventana.mainloop()
